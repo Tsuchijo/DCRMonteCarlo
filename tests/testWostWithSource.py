@@ -5,7 +5,7 @@ import sys
 import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from solvers.WoStSolver import WostSolver_2D
-from geometry.Polylines import PolyLines, PolyLinesSimple
+from geometry.PolylinesSimple import PolyLines, PolyLinesSimple
 
 def create_test_domain():
     """
@@ -106,7 +106,7 @@ def run_test():
     solver.setSourceTerm(source_term)
     
     # Solve with fewer walks for faster testing
-    solution = solver.solve(solve_points, nWalks=100, maxSteps=500)
+    solution = solver.solve(solve_points, nWalks=500, maxSteps=500)
     
     # Compute analytical solution for comparison
     analytical = analytical_solution(solve_points)

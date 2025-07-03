@@ -6,7 +6,7 @@ import sys
 import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from solvers.WoStSolver import WostSolver_2D
-from geometry.Polylines import PolyLines, PolyLinesSimple
+from geometry.PolylinesSimple import PolyLines, PolyLinesSimple
 
 
 class TestVariableCoefficientWoS:
