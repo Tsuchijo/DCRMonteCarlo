@@ -3,7 +3,7 @@ import numpy as np
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 from scipy.special import i0, k0
-from Polylines import PolyLines, PolyLinesSimple
+from geometry.Polylines import PolyLines, PolyLinesSimple
 from utils import torchGradient, torchLaplacian, gridSampleMinMax
 
 class WostSolver_2D:
@@ -35,6 +35,10 @@ class WostSolver_2D:
 
         self.boundaryDirichlet = lambda point: 0.0  # Default Dirichlet boundary condition (can be set later)
         self.source = source
+        self.use_delta_tracking = False
+        
+        # Initialize performance optimization tensors
+        self._init_preallocated_tensors()
 
         # Diffusion or absorption term is provided create the modified terms needed for delta tracking
         if diffusion is not None or absorption is not None:
@@ -114,6 +118,76 @@ class WostSolver_2D:
 
         return sigma_prime, sigma_bar
     
+    def _init_preallocated_tensors(self):
+        """
+        Initialize preallocated tensors for performance optimization.
+        These tensors are reused across walks to avoid repeated allocations.
+        """
+        # Default sizes - will be resized as needed in solve methods
+        self.max_walks = 1000
+        self.max_steps = 1000
+        self.random_batch_size = 10000
+        
+        # Preallocated tensors for random walk computations
+        self.work_tensors = {
+            'current_points': torch.zeros(self.max_walks, 2, dtype=torch.float32),
+            'directions': torch.zeros(self.max_steps, 2, dtype=torch.float32),
+            'step_directions': torch.zeros(self.max_walks, 2, dtype=torch.float32),
+            'distances': torch.zeros(self.max_walks, dtype=torch.float32),
+            'normal_vectors': torch.zeros(self.max_walks, 2, dtype=torch.float32),
+            'temp_points': torch.zeros(self.max_walks, 2, dtype=torch.float32),
+        }
+        
+        # Preallocated random number batches
+        self.random_batches = {
+            'angles': torch.zeros(self.random_batch_size, dtype=torch.float32),
+            'uniforms': torch.zeros(self.random_batch_size, dtype=torch.float32),
+            'angle_idx': 0,
+            'uniform_idx': 0,
+        }
+        
+        # Initialize first batch of random numbers
+        self._refill_random_batches()
+    
+    def _refill_random_batches(self):
+        """Refill the random number batches."""
+        self.random_batches['angles'] = torch.rand(self.random_batch_size) * 2 * np.pi
+        self.random_batches['uniforms'] = torch.rand(self.random_batch_size)
+        self.random_batches['angle_idx'] = 0
+        self.random_batches['uniform_idx'] = 0
+    
+    def _get_random_angle(self):
+        """Get next random angle from precomputed batch."""
+        if self.random_batches['angle_idx'] >= self.random_batch_size:
+            self._refill_random_batches()
+        
+        angle = self.random_batches['angles'][self.random_batches['angle_idx']]
+        self.random_batches['angle_idx'] += 1
+        return angle
+    
+    def _get_random_uniform(self):
+        """Get next uniform random number from precomputed batch."""
+        if self.random_batches['uniform_idx'] >= self.random_batch_size:
+            self._refill_random_batches()
+        
+        uniform = self.random_batches['uniforms'][self.random_batches['uniform_idx']]
+        self.random_batches['uniform_idx'] += 1
+        return uniform
+    
+    def _resize_work_tensors(self, n_walks, max_steps):
+        """Resize work tensors if needed for current problem size."""
+        if n_walks > self.max_walks or max_steps > self.max_steps:
+            self.max_walks = max(n_walks, self.max_walks)
+            self.max_steps = max(max_steps, self.max_steps)
+            
+            # Resize tensors
+            self.work_tensors['current_points'] = torch.zeros(self.max_walks, 2, dtype=torch.float32)
+            self.work_tensors['directions'] = torch.zeros(self.max_steps, 2, dtype=torch.float32)
+            self.work_tensors['step_directions'] = torch.zeros(self.max_walks, 2, dtype=torch.float32)
+            self.work_tensors['distances'] = torch.zeros(self.max_walks, dtype=torch.float32)
+            self.work_tensors['normal_vectors'] = torch.zeros(self.max_walks, 2, dtype=torch.float32)
+            self.work_tensors['temp_points'] = torch.zeros(self.max_walks, 2, dtype=torch.float32)
+
     def screenedGreensNorm(self, point: torch.Tensor, r: float) -> float:
         """
         Compute the normalized screened Green's function for the given point and radius.
@@ -275,35 +349,55 @@ class WostSolver_2D:
 
     def _solveDirichlet(self, solvePoints, nWalks: int = 1000, maxSteps: int = 1000) -> torch.Tensor:
         """
-        Simplified solve method for only Dirichlet boundary conditions (NeumannBoundayr=None).
-        This is the basic implementation of the Walk on Spheres method.
+        Optimized solve method for only Dirichlet boundary conditions (NeumannBoundayr=None).
+        This is the basic implementation of the Walk on Spheres method with preallocation optimizations.
         """
-
+        # Ensure work tensors are large enough
+        self._resize_work_tensors(nWalks, maxSteps)
+        
         eps = 1e-4
         rmin = 1e-3  # Minimum step size for the random walk
         results = torch.zeros((len(solvePoints), 1))  # Initialize results tensor
-        for i, point in enumerate(tqdm(solvePoints, desc="Solving WoS", unit="pt")):
+        
+        # Get reference to work tensors for efficiency
+        current_points = self.work_tensors['current_points']
+        temp_points = self.work_tensors['temp_points']
+        
+        for i, point in enumerate(tqdm(solvePoints, desc="Solving WoS (Optimized)", unit="pt")):
             # Initialize the random walk
-            for _ in range(nWalks):
-                current_point = point.clone()
+            for walk_idx in range(nWalks):
+                # Reuse tensor instead of cloning
+                current_points[walk_idx, 0] = point[0]
+                current_points[walk_idx, 1] = point[1]
+                current_point = current_points[walk_idx]
+                
                 step_count = 0
                 dDirichlet = 1.0  # Distance to the Dirichlet boundary
 
                 while (step_count < maxSteps) & (dDirichlet > eps):
                     dDirichlet = self.dirichletBoundary.distance(current_point)
                     r = max(rmin, dDirichlet)  # Step size is the distance to the Dirichlet boundary
-                    theta = torch.rand(1) * 2 * np.pi  # Random direction
-                    direction = torch.tensor([torch.cos(theta), torch.sin(theta)])
+                    
+                    # Use precomputed random angle instead of generating new tensor
+                    theta = self._get_random_angle()
+                    cos_theta = torch.cos(theta)
+                    sin_theta = torch.sin(theta)
 
                     if self.source is not None:
                         # If a source term is defined, sample the source term at the current point
                         r_sampled = self.sampleGreens(current_point, r)
-                        sample_point  = current_point + r_sampled * direction                        
+                        
+                        # Reuse temp tensor for sample point computation
+                        temp_points[walk_idx, 0] = current_point[0] + r_sampled * cos_theta
+                        temp_points[walk_idx, 1] = current_point[1] + r_sampled * sin_theta
+                        sample_point = temp_points[walk_idx]
+                        
                         # accumulate the source term value at the sampled point with the Green's function
                         results[i] += self.source(sample_point) * r**2 / 4 # scale by normalization factor of the Green's function
 
-
-                    current_point = current_point + r * direction  # Move in the random direction
+                    # Move in the random direction - update in place
+                    current_point[0] += r * cos_theta
+                    current_point[1] += r * sin_theta
 
                     step_count += 1  # Increment step count
                 # After the random walk, accumulate the solution value at the point
@@ -313,32 +407,67 @@ class WostSolver_2D:
 
     def _solve_delta_tacking(self, solvePoints: torch.tensor, nWalks = 1000, maxSteps = 1000) -> torch.Tensor:
         """
-        More advanced solver that uses the delta tracking method to solve the PDE with spacially varying diffusion and absorption coefficients.
+        Optimized solver that uses the delta tracking method to solve the PDE with spacially varying diffusion and absorption coefficients.
         """
+        # Ensure work tensors are large enough
+        self._resize_work_tensors(nWalks, maxSteps)
+        
         eps = 1e-4 # stopping tolerance
         rmin = 1e-6 # Minimum step size for the random walk
         results = torch.zeros((len(solvePoints), 1)) # Initialize results tensor to store the accumulated solution values
-        for i, point in enumerate(tqdm(solvePoints, desc="Solving WoS", unit="pt")):
+        
+        # Get references to work tensors for efficiency
+        current_points = self.work_tensors['current_points']
+        normal_vectors = self.work_tensors['normal_vectors']
+        temp_points = self.work_tensors['temp_points']
+        
+        for i, point in enumerate(tqdm(solvePoints, desc="Solving WoS Delta (Optimized)", unit="pt")):
             # Initialize the random walk
-            for _ in range(nWalks):
-                current_point = point.clone()
+            for walk_idx in range(nWalks):
+                # Reuse tensor instead of cloning
+                current_points[walk_idx, 0] = point[0]
+                current_points[walk_idx, 1] = point[1]
+                current_point = current_points[walk_idx]
+                
                 step_count = 0
                 dDirichlet = 1.0 # Distance to the Dirichlet boundary
                 onBoundary = False # Flag to check if the point is on the boundary
-                normal = torch.tensor([1.0, 0.0]) # Normal vector at the intersection point
+                
+                # Reuse normal vector tensor
+                normal_vectors[walk_idx, 0] = 1.0
+                normal_vectors[walk_idx, 1] = 0.0
+                normal = normal_vectors[walk_idx]
+                
                 attenuation_coef = 1.0 # accumulate attenuation factors onto this every time we branch
+                
                 while (step_count < maxSteps) & (dDirichlet > eps):
                     dDirichlet = self.dirichletBoundary.distance(current_point)
                     dNeumann = self.neumannBoundary.silhouetteDistance(current_point)
                     r = max(rmin, min(dDirichlet, dNeumann)) # Step size is the minimum distance to the boundaries
-                    theta = torch.rand(1) * 2 * np.pi # Random direction
+                    
+                    # Use precomputed random angle
+                    theta = self._get_random_angle()
                     if onBoundary:
                         theta = theta/2 + torch.atan2(normal[1], normal[0]) # Reflect the direction if on the boundary
-                    direction = torch.tensor([torch.cos(theta), torch.sin(theta)]) # Direction vector
+                    
+                    cos_theta = torch.cos(theta)
+                    sin_theta = torch.sin(theta)
+                    
+                    # Reuse temp tensor for direction computation
+                    temp_points[walk_idx, 0] = cos_theta
+                    temp_points[walk_idx, 1] = sin_theta
+                    direction = temp_points[walk_idx]
+                    
                     next_point, normal, onBoundary = self.neumannBoundary.intersectPolylines(current_point, direction, r) # Get the next point and normal vector
 
                     r_sampled = self.sampleScreenedGreens(current_point, r) # Sample the Green's function at the current point
-                    sample_point  = current_point + r_sampled * direction
+                    
+                    # Compute sample point using existing tensor
+                    sample_point_x = current_point[0] + r_sampled * cos_theta
+                    sample_point_y = current_point[1] + r_sampled * sin_theta
+                    
+                    # Create temporary sample point tensor
+                    sample_point = torch.tensor([sample_point_x, sample_point_y])
 
                     # if we try to sample from outside the domain, just set the sample_point to be the next point (hacky fix)
                     if (sample_point - current_point).norm() > (next_point - current_point).norm():
@@ -350,20 +479,21 @@ class WostSolver_2D:
                         results[i] += (self.source(sample_point) * self.screenedGreensNorm(current_point, r) \
                         / torch.sqrt(self.absorption(sample_point) * self.absorption(current_point))) * attenuation_coef
                 
-                    # sample randomly from 0-1
-                    mu = torch.rand(1)
+                    # Use precomputed uniform random number
+                    mu = self._get_random_uniform()
                     greens_norm = self.screenedGreensNorm(current_point, r)
                     if mu > self.sigma_bar * greens_norm:
                         # sample from the edge of the sphere
                         attenuation_coef *= torch.sqrt(self.absorption(next_point) / self.absorption(current_point))
-                        current_point = next_point
+                        current_point[0] = next_point[0]
+                        current_point[1] = next_point[1]
                     
                     else:
                         sigma_prime_val = self.sigma_prime(sample_point)
                         attenuation_coef *= torch.sqrt(self.absorption(sample_point) / self.absorption(current_point)) \
                             * (1 - sigma_prime_val / self.sigma_bar)
-                        current_point = sample_point
-
+                        current_point[0] = sample_point[0]
+                        current_point[1] = sample_point[1]
 
                     step_count += 1 # Increment step count
                 
@@ -395,37 +525,79 @@ class WostSolver_2D:
         if self.use_delta_tracking:
             return self._solve_delta_tacking(solvePoints, nWalks=nWalks, maxSteps=maxSteps)
 
+        # Use optimized mixed boundary solver
+        return self._solve_mixed_boundaries(solvePoints, nWalks=nWalks, maxSteps=maxSteps)
+    
+    def _solve_mixed_boundaries(self, solvePoints: torch.tensor, nWalks = 1000, maxSteps = 1000) -> torch.Tensor:
+        """
+        Optimized solver for mixed Dirichlet/Neumann boundary conditions with tensor preallocation.
+        """
+        # Ensure work tensors are large enough
+        self._resize_work_tensors(nWalks, maxSteps)
+        
         eps = 1e-4 # stopping tolerance
         rmin = 1e-6 # Minimum step size for the random walk
         results = torch.zeros((len(solvePoints), 1)) # Initialize results tensor to store the accumulated solution values
-        for i, point in enumerate(tqdm(solvePoints, desc="Solving WoS", unit="pt")):
+        
+        # Get references to work tensors for efficiency
+        current_points = self.work_tensors['current_points']
+        normal_vectors = self.work_tensors['normal_vectors']
+        temp_points = self.work_tensors['temp_points']
+        
+        for i, point in enumerate(tqdm(solvePoints, desc="Solving WoS Mixed (Optimized)", unit="pt")):
             # Initialize the random walk
-            for _ in range(nWalks):
-                current_point = point.clone()
+            for walk_idx in range(nWalks):
+                # Reuse tensor instead of cloning
+                current_points[walk_idx, 0] = point[0]
+                current_points[walk_idx, 1] = point[1]
+                current_point = current_points[walk_idx]
+                
                 step_count = 0
                 dDirichlet = 1.0 # Distance to the Dirichlet boundary
                 onBoundary = False # Flag to check if the point is on the boundary
-                normal = torch.tensor([1.0, 0.0]) # Normal vector at the intersection point
+                
+                # Reuse normal vector tensor
+                normal_vectors[walk_idx, 0] = 1.0
+                normal_vectors[walk_idx, 1] = 0.0
+                normal = normal_vectors[walk_idx]
+                
                 while (step_count < maxSteps) & (dDirichlet > eps):
                     dDirichlet = self.dirichletBoundary.distance(current_point)
                     dNeumann = self.neumannBoundary.silhouetteDistance(current_point)
                     r = max(rmin, min(dDirichlet, dNeumann)) # Step size is the minimum distance to the boundaries
-                    theta = torch.rand(1) * 2 * np.pi # Random direction
+                    
+                    # Use precomputed random angle
+                    theta = self._get_random_angle()
                     if onBoundary:
                         theta = theta/2 + torch.atan2(normal[1], normal[0]) # Reflect the direction if on the boundary
-                    direction = torch.tensor([torch.cos(theta), torch.sin(theta)]) # Direction vector
+                    
+                    cos_theta = torch.cos(theta)
+                    sin_theta = torch.sin(theta)
+                    
+                    # Reuse temp tensor for direction computation
+                    temp_points[walk_idx, 0] = cos_theta
+                    temp_points[walk_idx, 1] = sin_theta
+                    direction = temp_points[walk_idx]
+                    
                     next_point, normal, onBoundary = self.neumannBoundary.intersectPolylines(current_point, direction, r) # Get the next point and normal vector
 
                     if self.source is not None: # sample the source term
                         # If a source term is defined, sample the source term at the current point
                         r_sampled = self.sampleGreens(current_point, r)
-                        sample_point  = current_point + r_sampled * direction
+                        
+                        # Compute sample point using scalars to avoid tensor creation
+                        sample_point_x = current_point[0] + r_sampled * cos_theta
+                        sample_point_y = current_point[1] + r_sampled * sin_theta
+                        sample_point = torch.tensor([sample_point_x, sample_point_y])
+                        
                         if not ((sample_point - current_point).norm() > (next_point - current_point).norm()):
                             # If the sampled point is further than the next point we are outside the domain and should not sample it
                             # accumulate the source term value at the sampled point with the Green's function
                             results[i] += self.source(sample_point) * r**2 / 4 # scale by normalization factor of the Green's function
 
-                    current_point = next_point
+                    # Update current point in place
+                    current_point[0] = next_point[0]
+                    current_point[1] = next_point[1]
                     step_count += 1 # Increment step count
                 
                 results[i] += self.boundaryDirichlet(current_point) # Accumulate the solution value at the point

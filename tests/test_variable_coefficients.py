@@ -2,8 +2,11 @@ import torch
 import numpy as np
 import matplotlib.pyplot as plt
 import pytest
-from WoStSolver import WostSolver_2D
-from Polylines import PolyLines, PolyLinesSimple
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from solvers.WoStSolver import WostSolver_2D
+from geometry.Polylines import PolyLines, PolyLinesSimple
 
 
 class TestVariableCoefficientWoS:

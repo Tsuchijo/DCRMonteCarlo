@@ -1,8 +1,11 @@
 import torch
 import numpy as np
 import matplotlib.pyplot as plt
-from WoStSolver import WostSolver_2D
-from Polylines import PolyLines, PolyLinesSimple
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from solvers.WoStSolver import WostSolver_2D
+from geometry.Polylines import PolyLines, PolyLinesSimple
 
 def create_test_domain():
     """

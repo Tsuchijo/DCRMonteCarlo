@@ -1,5 +1,6 @@
 import torch
 import pytest
+from torch import jit
 
 class PolyLines:
     """
