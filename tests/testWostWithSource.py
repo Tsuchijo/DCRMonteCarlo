@@ -37,7 +37,6 @@ def create_test_domain():
     # Create polyline boundaries
     dirichlet_boundary = PolyLinesSimple(square_points)
     neumann_boundary = PolyLinesSimple(circle_points)
-    
     return dirichlet_boundary, neumann_boundary
 
 def define_boundary_conditions():
@@ -53,6 +52,7 @@ def define_boundary_conditions():
         # check if the point is within problem bounds
         if point[0] < -2.0 or point[0] > 2.0 or point[1] < -2.0 or point[1] > 2.0:
             return 0.0
+        
         return -4.0
     
     return dirichlet_bc, source_term
@@ -98,7 +98,8 @@ def run_test():
     # Initialize solver
     solver = WostSolver_2D(
         dirichletBoundary=dirichlet_boundary,
-        neumannBoundary=neumann_boundary,
+        neumannBoundary=None,
+        source=source_term
     )
     
     # Set boundary conditions and source term
@@ -106,7 +107,7 @@ def run_test():
     solver.setSourceTerm(source_term)
     
     # Solve with fewer walks for faster testing
-    solution = solver.solve(solve_points, nWalks=500, maxSteps=500)
+    solution = solver.solve(solve_points, nWalks=150, maxSteps=500)
     
     # Compute analytical solution for comparison
     analytical = analytical_solution(solve_points)

@@ -83,6 +83,7 @@ name = "dcrmontecarlo"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
+    { name = "fenics" },
     { name = "matplotlib" },
     { name = "numpy" },
     { name = "pytest" },
@@ -93,12 +94,80 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "fenics", specifier = ">=2019.1.0" },
     { name = "matplotlib", specifier = ">=3.10.3" },
     { name = "numpy", specifier = ">=2.3.1" },
     { name = "pytest", specifier = ">=8.4.1" },
     { name = "scipy", specifier = ">=1.16.0" },
     { name = "torch", specifier = ">=2.7.1" },
     { name = "tqdm", specifier = ">=4.67.1" },
+]
+
+[[package]]
+name = "fenics"
+version = "2019.1.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "fenics-dijitso" },
+    { name = "fenics-ffc" },
+    { name = "fenics-fiat" },
+    { name = "fenics-ufl" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/b6/c7/41f81ceb3c5da155fe101e7c876a90acf12d7010ce9dc6684d54b088e371/fenics-2019.1.0.tar.gz", hash = "sha256:97ff239b5bfacbf47092689e42bc0b551846d7f91b7f74310bc057dce9e5b2c8", size = 1768 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/d0/de/3c458c4cb1264e81cb96deab36eca65a4875e310755c59869649ef7769ef/fenics-2019.1.0-py3-none-any.whl", hash = "sha256:528c882affdc8e5f1a80657984f18653e09089572327c4f86f70edffe995afec", size = 1455 },
+]
+
+[[package]]
+name = "fenics-dijitso"
+version = "2019.1.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/ac/85/9e6a4bfdb40dd543877c1e06eb31ce0be3dc92123adc11e3386433cd6425/fenics-dijitso-2019.1.0.tar.gz", hash = "sha256:4c03f3f0b89c88fe4d992676c9223717677fc0dbde4a91a10253b5eb11d61852", size = 51865 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/f2/62/c061cb9f8f5547915804cdf8046fe2989c5b7317445fb1246ac77a9bad7f/fenics_dijitso-2019.1.0-py3-none-any.whl", hash = "sha256:ddb2c54e3e567b2639f492943c5457bf391c49eccda7343edf7d9414b10841a5", size = 46713 },
+]
+
+[[package]]
+name = "fenics-ffc"
+version = "2019.1.0.post0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "fenics-dijitso" },
+    { name = "fenics-fiat" },
+    { name = "fenics-ufl" },
+    { name = "numpy" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/8c/ec/70420ea36df6be4faac96f8a9396d2ffc8113d19fa56025f7f7162017dde/fenics-ffc-2019.1.0.post0.tar.gz", hash = "sha256:e93dcee11a297e51aa8877b022c1d62beed7c8d779e57c831acf15a320214ab8", size = 1364267 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/74/b6/0c3743a5b9fecaf3b7fe7b0c6526e7c635bd1bb6f9bc4a177bababc79131/fenics_ffc-2019.1.0.post0-py3-none-any.whl", hash = "sha256:54d7529ca6306f32e15e8e4a26f32a3d2ec68902262191148b32c92657a6851f", size = 362992 },
+]
+
+[[package]]
+name = "fenics-fiat"
+version = "2019.1.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy" },
+    { name = "sympy" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/df/3d/4fa91f26cd1cfccb40ce5516ea79cfe193e0ce4f11b9b8e4f24999d2a4cf/fenics-fiat-2019.1.0.tar.gz", hash = "sha256:8bbc8f06c3a749db0789bc9029fbae8cccb5da9c241eab068155b4a12a3d4c8f", size = 106772 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/05/54/e463570ef224ca199c2baf0b77f10b8de44ce9b40374c0fc229d108e6c26/fenics_fiat-2019.1.0-py3-none-any.whl", hash = "sha256:6bf99374ed320017f853a573a21fe31763cba14b9c0459f4000edb12f83731ba", size = 112468 },
+]
+
+[[package]]
+name = "fenics-ufl"
+version = "2019.1.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/fd/a7/eab9512b231e915a8df6f780a7d97313687fb8cd680e8a446f6ebedfcb99/fenics-ufl-2019.1.0.tar.gz", hash = "sha256:f778cb914f0fe57be76ad288a9209c1f4034a65692e13907171d994a4747bf81", size = 301719 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/59/cd/e102c234b8be3bcff5395c555182caf2d1662e24e0417b0005e5f05ec33c/fenics_ufl-2019.1.0-py3-none-any.whl", hash = "sha256:a7de887a71c1643494ab84af67d837f8e0210f64fcf7ef7fc7309c25a0990d9c", size = 282719 },
 ]
 
 [[package]]

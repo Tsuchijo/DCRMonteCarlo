@@ -217,7 +217,7 @@ def run_variable_coefficient_test():
         dirichletBoundary=dirichlet_boundary,
         neumannBoundary=neumann_boundary,
         diffusion=diffusion_func,
-        absorption=absorption_func,
+        alpha=absorption_func,
         source=source_term
     )
     solver.setBoundaryConditions(dirichlet_bc)
