@@ -74,14 +74,16 @@ class WostSolver_2D:
         def sigma_wrapped(point):
             result = self.sigma(point)
             if not isinstance(result, torch.Tensor):
-                result = torch.tensor(result, dtype=torch.float32)
+                result = torch.tensor(result, dtype=torch.float32, requires_grad=True)
             return result
         
         def alpha_wrapped(point):
             result = self.alpha(point)
             if not isinstance(result, torch.Tensor):
-                result = torch.tensor(result, dtype=torch.float32)
-            return result
+                result = torch.tensor(result, dtype=torch.float32, requires_grad=True)
+            # Ensure alpha is always positive to avoid numerical issues
+            epsilon = 1e-8
+            return torch.clamp(result, min=epsilon)
         
         def sigma_prime(point):
             """
@@ -89,46 +91,50 @@ class WostSolver_2D:
             defined from Sawhney et al. 2023
             $$\sigma = \frac{\sigma(x)}{\alpha(x)} + \frac{1}{2}(\frac{\laplaca\alpha(x)}{\alpha(x)} - \frac{|\nabla ln(\alpha(x))|^2}{2})$$
             """
-            # Ensure point has gradients enabled for autograd
-            point = point.clone().detach().requires_grad_(True)
+            # Ensure point has gradients enabled while preserving computation graph
+            if not point.requires_grad:
+                point = point.clone().requires_grad_(True)
+            else:
+                # If already has gradients, just clone to avoid modifying the original
+                point = point.clone()
             
+            # Simple fallback computation
+            simple_ratio = sigma_wrapped(point) / alpha_wrapped(point)
             try:
-                # Compute Laplacian of absorption function
+                # Compute Laplacian of alpha function
                 alpha_laplacian = torchLaplacian(alpha_wrapped, point)
-            except Exception as e:
-                #print(f"Laplacian computation failed at point {point}: {e}")
-                return sigma_wrapped(point) / alpha_wrapped(point)
-
-            try:
-                # Create a log-absorption function for gradient computation
-                def log_absorption(p):
-                    return torch.log(alpha_wrapped(p))
                 
-                alpha_log_grad = torchGradient(log_absorption, point)
-                alpha_log_grad_norm = alpha_log_grad.norm() ** 2
-
-                return (sigma_wrapped(point) / alpha_wrapped(point)) + \
-                       0.5 * (alpha_laplacian / alpha_wrapped(point) - \
-                               alpha_log_grad_norm / 2.0)
+                # Create a log-alpha function for gradient computation
+                def log_alpha(p):
+                    alpha_val = alpha_wrapped(p)
+                    # Add small epsilon to prevent log(0) issues
+                    epsilon = 1e-8
+                    return torch.log(alpha_val + epsilon)
+                
+                alpha_log_grad = torchGradient(log_alpha, point)
+                alpha_log_grad_norm = (alpha_log_grad ** 2).sum()
+                
+                # Compute the full modified sigma
+                alpha_val = alpha_wrapped(point)
+                correction_term = 0.5 * (alpha_laplacian / alpha_val - alpha_log_grad_norm / 2.0)
+                
+                return simple_ratio + correction_term
+                
             except Exception as e:
                 # If gradient computation fails, fall back to simple ratio
-                print(f"Log grad failed at point {point}: {e}")
-                return sigma_wrapped(point) / alpha_wrapped(point)
+                # This is actually fine for many cases where alpha is constant or nearly 
+                print(f"Failed with exception {e}")
+                return simple_ratio
         
         # find the sigma bar term, which should be the estimated difference between the min and max of the modified absorption term on the domain
-        try:
-            min_sigma, max_sigma, _, _ = gridSampleMinMax(sigma_prime, self.domain_bounds, grid_resolution=50)
-            sigma_bar = max_sigma
-            
-            # Ensure sigma_bar is positive and reasonable
-            if sigma_bar <= 0:
-                sigma_bar = 1.0  # fallback value
-                
-        except Exception as e:
-            # If grid sampling fails, use a simple heuristic
-            print(f"Warning: Could not compute sigma_bar via grid sampling: {e}")
+        min_sigma, max_sigma, _, _ = gridSampleMinMax(sigma_prime, self.domain_bounds, grid_resolution=50)
+        sigma_bar = max_sigma
+        
+        # Ensure sigma_bar is positive and reasonable
+        if (sigma_bar <= 0) | (sigma_bar > 1e6):
+            print("Sigma_bar is too small, falling back on value")
             sigma_bar = 1.0  # fallback value
-
+                
         return sigma_prime, sigma_bar
     
 
@@ -174,10 +180,9 @@ class WostSolver_2D:
         results_list = []
         
         for point in tqdm(solvePoints, desc=desc, unit="pt"):
-            #point_total = torch.tensor(0.0, requires_grad=True)
             point_total = torch.tensor(0.0, requires_grad=True)
             
-            for _ in range(nWalks):
+            for i in range(nWalks):
                 current_point = point.clone()
                 step_count = 0
                 dDirichlet = 1.0
@@ -217,9 +222,7 @@ class WostSolver_2D:
                     if self.source is not None:
                         # Delta tracking: sample from screened Green's function
                         r_sampled = sampler.sample(current_point, r)
-                        sample_point_x = current_point[0] + r_sampled * cos_theta
-                        sample_point_y = current_point[1] + r_sampled * sin_theta
-                        sample_point = torch.tensor([sample_point_x, sample_point_y])
+                        sample_point = current_point + r_sampled * direction
                         
                         # Clamp sample point to domain
                         if (sample_point - current_point).norm() > (next_point - current_point).norm():

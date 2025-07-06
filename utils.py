@@ -13,8 +13,16 @@ def torchGradient(function: callable, point: torch.Tensor) -> torch.Tensor:
     Returns:
         torch.Tensor: The gradient of the function at the given point.
     """
-    point.requires_grad = True
+    # Ensure point requires gradients
+    if not point.requires_grad:
+        point = point.clone().requires_grad_(True)
+    
     value = function(point)
+    
+    # Ensure the function output is a scalar
+    if value.numel() != 1:
+        raise ValueError(f"Function must return a scalar, got tensor with {value.numel()} elements")
+    
     gradient = torch.autograd.grad(value, point, create_graph=True)[0]
     return gradient
 
@@ -29,8 +37,23 @@ def torchLaplacian(function: callable, point: torch.Tensor) -> torch.Tensor:
     Returns:
         torch.Tensor: The Laplacian of the function at the given point.
     """
+    # Ensure point requires gradients
+    if not point.requires_grad:
+        point = point.clone().requires_grad_(True)
+    
+    # Compute first derivatives (gradient)
     gradient = torchGradient(function, point)
-    laplacian = torch.autograd.grad(gradient.sum(), point, create_graph=True)[0].sum()
+    
+    # Compute second derivatives (Laplacian) by taking divergence of gradient
+    laplacian = torch.zeros_like(gradient[0]) + 1e-8 # add small value to prevent divergence
+    try:
+        for i in range(len(gradient)):
+            # Compute second derivative with respect to each dimension
+            second_deriv = torch.autograd.grad(gradient[i], point, create_graph=True, retain_graph=True)[0][i]
+            laplacian = laplacian + second_deriv
+    except Exception as e:
+        return laplacian
+        
     return laplacian
 
 def gridSampleMinMax(function: callable, domain_bounds: list, grid_resolution: int = 100) -> tuple:

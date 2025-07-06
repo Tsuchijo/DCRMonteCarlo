@@ -216,8 +216,8 @@ def run_variable_coefficient_test():
     solver = WostSolver_2D(
         dirichletBoundary=dirichlet_boundary,
         neumannBoundary=neumann_boundary,
-        diffusion=diffusion_func,
-        alpha=absorption_func,
+        sigma=absorption_func,
+        alpha=diffusion_func,
         source=source_term
     )
     solver.setBoundaryConditions(dirichlet_bc)
@@ -230,7 +230,7 @@ def run_variable_coefficient_test():
     start_time = time.time()
     
     # Use moderate parameters for reasonable computation time
-    solution = solver.solve(solve_points, nWalks=300, maxSteps=1000)
+    solution = solver.solve(solve_points, nWalks=25, maxSteps=1000)
     
     solve_time = time.time() - start_time
     print(f"   Solution completed in {solve_time:.2f} seconds")

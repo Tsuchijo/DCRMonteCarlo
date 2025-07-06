@@ -35,14 +35,11 @@ def manufactured_solution_with_trig_function():
 
     def diffusion_coefficient(point):
         """D(x,y) = 2 + x"""
-        x, y = point[0], point[1]
-        return 2.0 + x
+        return point[0] + 2
 
     def absorption_coefficient(point):
         """σ(x,y) = y² + 1"""
-        x, y = point[0], point[1]
-        return y**2 + 1.0
-
+        return point[1]**2 + 1
     def boundary_condition(point):
         x, y = point[0], point[1]
         return torch.sin(torch.pi * x) * torch.sin(torch.pi * y)
@@ -85,7 +82,7 @@ def manufactured_solution_with_polynomial():
     """
     Polynomial manufactured solution:
     u(x,y) = (1 - x²)(1 - y²)   (zero on boundary of [-1,1]×[-1,1])
-    D(x,y) = 1 + x + y          (linear diffusion)
+    D(x,y) = 2 + 0.5*x + 0.5*y  (linear diffusion)
     α(x,y) = 2 + xy             (bilinear absorption)
 
     PDE: -∇·(D(x,y)∇u) + α(x,y)u = f(x,y)
@@ -96,14 +93,11 @@ def manufactured_solution_with_polynomial():
         return (1 - x**2) * (1 - y**2)
 
     def diffusion_coefficient(point):
-        """D(x,y) = 1 + x + y"""
-        x, y = point[0], point[1]
-        return 1.0 + x + y
-
+        """D(x,y) = 2 + 0.5*x + 0.5*y"""
+        return 2.0 + 0.5 * point[0] + 0.5 * point[1]
     def absorption_coefficient(point):
         """α(x,y) = 2 + xy"""
-        x, y = point[0], point[1]
-        return 2.0 + x * y
+        return point[0] * point[1] + 2
 
     def boundary_condition(point):
         x, y = point[0], point[1]
@@ -119,24 +113,24 @@ def manufactured_solution_with_polynomial():
         ∂²u/∂y² = -2(1 - x²)
         ∇²u = -2(1 - y²) - 2(1 - x²) = -2(2 - x² - y²)
 
-        D(x,y) = 1 + x + y ⇒ ∇D = [1, 1]
+        D(x,y) = 2 + 0.5*x + 0.5*y ⇒ ∇D = [0.5, 0.5]
         ∇·(D∇u) = D ∇²u + ∇D · ∇u
-                = (1 + x + y)*(-2(2 - x² - y²)) + 1*(-2x(1 - y²)) + 1*(-2y(1 - x²))
-                = -2(1 + x + y)(2 - x² - y²) - 2x(1 - y²) - 2y(1 - x²)
+                = (2 + 0.5*x + 0.5*y)*(-2(2 - x² - y²)) + 0.5*(-2x(1 - y²)) + 0.5*(-2y(1 - x²))
+                = -2(2 + 0.5*x + 0.5*y)(2 - x² - y²) - x(1 - y²) - y(1 - x²)
 
         α(x,y) = 2 + xy
 
         So:
         f = -∇·(D∇u) + αu
-          = 2(1 + x + y)(2 - x² - y²) + 2x(1 - y²) + 2y(1 - x²) + (2 + xy)(1 - x²)(1 - y²)
+          = 2(2 + 0.5*x + 0.5*y)(2 - x² - y²) + x(1 - y²) + y(1 - x²) + (2 + xy)(1 - x²)(1 - y²)
         """
         x, y = point[0], point[1]
         u = (1 - x**2) * (1 - y**2)
         
         # Gradient and Laplacian terms
         laplacian_u = -2 * (2 - x**2 - y**2)
-        D = 1 + x + y
-        gradD_dot_gradu = -2*x*(1 - y**2) - 2*y*(1 - x**2)
+        D = 2 + 0.5*x + 0.5*y
+        gradD_dot_gradu = -x*(1 - y**2) - y*(1 - x**2)
         div_D_grad_u = D * laplacian_u + gradD_dot_gradu
         
         # Absorption term
@@ -173,7 +167,7 @@ def run_test():
     
     # Get manufactured solution components
     (analytical_solution, diffusion_coefficient, absorption_coefficient, 
-     boundary_condition, source_term) = manufactured_solution_with_trig_function()
+     boundary_condition, source_term) = manufactured_solution_with_polynomial()
     
     # Initialize solver with variable coefficients
     solver = WostSolver_2D(
@@ -189,7 +183,7 @@ def run_test():
     
     # Solve with moderate number of walks for speed
     print("Solving (this may take a moment)...")
-    solution = solver.solve(test_points, nWalks=75, maxSteps=800)
+    solution = solver.solve(test_points, nWalks=125, maxSteps=800)
     
     # Compute analytical solution and errors
     analytical = analytical_solution(test_points)

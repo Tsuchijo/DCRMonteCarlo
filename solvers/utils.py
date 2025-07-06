@@ -39,6 +39,7 @@ def screenedGreensNorm2D(R: float, sigmaBar: float) -> float:
     Returns:
         float: The normalized value of the Green's function at the given point and radius.
     """
+
     I_0 = i0(R * np.sqrt(sigmaBar))  # Modified Bessel function of the first kind
     return 1 / sigmaBar * (1 - 1/I_0)
 
