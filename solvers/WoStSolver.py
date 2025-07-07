@@ -159,13 +159,12 @@ class WostSolver_2D:
     
 
 
-    def _solveUnified(self, solvePoints, nWalks: int = 1000, maxSteps: int = 1000) -> torch.Tensor:
+    def _solveUnified(self, solvePoints, nWalks: int = 1000, maxSteps: int = 1000, eps=1e-4) -> torch.Tensor:
         """
         Unified solver that handles all cases: Dirichlet-only, mixed boundaries, and delta tracking.
         Uses conditional logic to skip unnecessary calculations for simpler cases.
         """
-        eps = 1e-4
-        rmin = 1e-6 # rmin must be less than eps, or else risk suddenly jumping outside of the domain resulting in odd behavior 
+        rmin = eps/2 # rmin must be less than eps, or else risk suddenly jumping outside of the domain resulting in odd behavior 
         sampler = GreensDistribution2D(10000)
 
         # Determine solver mode for progress bar description
@@ -270,7 +269,7 @@ class WostSolver_2D:
         return torch.stack(results_list).unsqueeze(1)
 
     #@torch.no_grad()
-    def solve(self, solvePoints: torch.tensor, nWalks = 1000, maxSteps = 1000) -> torch.Tensor:
+    def solve(self, solvePoints: torch.tensor, nWalks = 1000, maxSteps = 1000, eps=1e-4) -> torch.Tensor:
         """
         Solve the forward problem for the given surface topology and boundary size.
 
@@ -286,4 +285,4 @@ class WostSolver_2D:
         """
 
         # Use unified solver for all cases
-        return self._solveUnified(solvePoints, nWalks=nWalks, maxSteps=maxSteps)
+        return self._solveUnified(solvePoints, nWalks=nWalks, maxSteps=maxSteps, eps=1e-4)

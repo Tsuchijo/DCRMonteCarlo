@@ -161,7 +161,7 @@ def run_test():
     
     # Create domain and test points
     boundary = create_square_domain(domain_size=2.0)
-    test_points = create_test_points(domain_size=2.0, n_points=10)  # Only 16 points
+    test_points = create_test_points(domain_size=2.0, n_points=4)  # Only 16 points
     
     print(f"\nTesting at {len(test_points)} points")
     
@@ -180,83 +180,22 @@ def run_test():
     
     solver.setBoundaryConditions(boundary_condition)
     solver.setSourceTerm(source_term)
-    
-    # Solve with moderate number of walks for speed
-    print("Solving (this may take a moment)...")
-    solution = solver.solve(test_points, nWalks=125, maxSteps=800)
+    analytical = analytical_solution(test_points)
+
+    # Test on 4 different sizes of integration to test convergence
+    test_n_walks = [10, 25, 50, 150]
+    solutions = []
+    for n_walks in test_n_walks:
+        print(f"Testing for {n_walks} walks")
+        solutions.append(solver.solve(test_points, nWalks=n_walks, maxSteps=800))
     
     # Compute analytical solution and errors
-    analytical = analytical_solution(test_points)
-    error = torch.abs(solution.flatten() - analytical).detach()
-    relative_error = error / (torch.abs(analytical) + 1e-10)
     
-    # Print results
-    print(f"\nResults:")
-    print(f"Solution range: [{torch.min(analytical):.3f}, {torch.max(analytical):.3f}]")
-    print(f"Mean absolute error: {torch.mean(error):.4f}")
-    print(f"Max absolute error: {torch.max(error):.4f}")
-    print(f"RMSE: {torch.sqrt(torch.mean(error**2)):.4f}")
-    print(f"Mean relative error: {torch.mean(relative_error):.2%}")
-    print(f"Max relative error: {torch.max(relative_error):.2%}")
+    errors = [((solution.flatten() - analytical)**2).detach() for solution in solutions]
+    RMSE = [torch.sqrt(errors.mean()) for errors in errors]
+    print(RMSE)
     
-    # Create detailed comparison table
-    print(f"\nPoint-by-point comparison:")
-    print(f"{'x':>6} {'y':>6} {'Analytical':>12} {'Numerical':>12} {'Error':>10} {'Rel.Err':>8}")
-    print("-" * 60)
-    for i in range(len(test_points)):
-        x, y = test_points[i, 0].item(), test_points[i, 1].item()
-        anal = analytical[i].item()
-        numer = solution.flatten()[i].item()
-        err = error[i].item()
-        rel_err = relative_error[i].item()
-        print(f"{x:6.2f} {y:6.2f} {anal:12.4f} {numer:12.4f} {err:10.4f} {rel_err:7.1%}")
-    
-    # Plot results
-    fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(12, 10))
-    
-    test_points_d = test_points.detach().numpy()
-    # Plot numerical solution
-    scatter1 = ax1.scatter(test_points_d[:, 0], test_points_d[:, 1], c=solution.detach().flatten(), 
-                          s=100, cmap='viridis')
-    ax1.set_title('Numerical Solution')
-    ax1.set_xlabel('x')
-    ax1.set_ylabel('y')
-    ax1.set_aspect('equal')
-    plt.colorbar(scatter1, ax=ax1)
-    
-    # Plot analytical solution
-    scatter2 = ax2.scatter(test_points_d[:, 0], test_points_d[:, 1], c=analytical, 
-                          s=100, cmap='viridis')
-    ax2.set_title('Analytical Solution')
-    ax2.set_xlabel('x')
-    ax2.set_ylabel('y')
-    ax2.set_aspect('equal')
-    plt.colorbar(scatter2, ax=ax2)
-    
-    # Plot absolute error
-    scatter3 = ax3.scatter(test_points_d[:, 0], test_points_d[:, 1], c=error, 
-                          s=100, cmap='Reds')
-    ax3.set_title('Absolute Error')
-    ax3.set_xlabel('x')
-    ax3.set_ylabel('y')
-    ax3.set_aspect('equal')
-    plt.colorbar(scatter3, ax=ax3)
-    
-    solution = solution.detach()
-    # Plot numerical vs analytical
-    ax4.scatter(analytical.numpy(), solution.flatten().numpy(), s=100, alpha=0.7)
-    min_val = min(torch.min(analytical), torch.min(solution))
-    max_val = max(torch.max(analytical), torch.max(solution))
-    ax4.plot([min_val, max_val], [min_val, max_val], 'r--', label='Perfect Agreement')
-    ax4.set_xlabel('Analytical Solution')
-    ax4.set_ylabel('Numerical Solution')
-    ax4.set_title('Solution Comparison')
-    ax4.legend()
-    
-    plt.tight_layout()
-    plt.show()
-    
-    return solution, analytical, error
+
 
 if __name__ == "__main__":
     # Set random seed for reproducibility
