@@ -224,11 +224,12 @@ class PolyLinesSimple(PolyLines):
         return distance_to_polyline_jit(self.points, point)
 
     @staticmethod
-    def funcToPolyline(func: callable, x_max: float, resolution: float) -> 'PolyLines':
+    def funcToPolyline(func: callable, x_min: float, x_max: float, resolution: float) -> 'PolyLines':
         """
         Convert a 1D heightmap function to a PolyLines object.
         Args:
             func (callable): A function that takes an x-coordinate and returns the y-coordinate of the surface.
+            x_min (float): the min x value for the polyline
             x_max (float): The maximum x value for the polyline.
             resolution (float): The distance between points in the polyline.
         Returns:
@@ -236,7 +237,7 @@ class PolyLinesSimple(PolyLines):
         """
         x = torch.arange(0, x_max, resolution)
         y = func(x)
-        return PolyLines(torch.stack((x, y), dim=-1))
+        return PolyLinesSimple(torch.stack((x, y), dim=-1))
     
     def isSilhouette(self, point: torch.Tensor) -> torch.Tensor:
         """

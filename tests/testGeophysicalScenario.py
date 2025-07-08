@@ -6,6 +6,7 @@ import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from solvers.WoStSolver import WostSolver_2D
 from geometry.PolylinesSimple import PolyLinesSimple
+from utils import torch_smooth_circle
 
 def dcr_current_source(point):
     """
@@ -31,7 +32,7 @@ def dcr_current_source(point):
     
     return float(positive_source - negative_sink)
 
-def resistivity_field(point):
+def conductivity_field(point):
     """
     Define a smooth, differentiable resistivity field with background and two conductive anomalies.
     Uses smooth exponential transitions instead of hard boundaries.
@@ -39,16 +40,15 @@ def resistivity_field(point):
     x, y = point[0], point[1]
     
     # Background conductivity (1/100 ohm-m)
-    background_conductivity = 1e-2
-    
-    # Sphere 1: smooth Gaussian anomaly at (-20, -30)
-    dist1_sq = (x + 20.0)**2 + (y + 30.0)**2
-    anomaly1 = 0.1 * torch.exp(-dist1_sq / 50.0)  # Smooth transition
-    
-    # Sphere 2: smooth Gaussian anomaly at (25, -40)  
-    dist2_sq = (x - 25.0)**2 + (y + 40.0)**2
-    anomaly2 = 1e-3 * torch.exp(-dist2_sq / 100.0)  # Smooth transition
-    
+    background_conductivity = 1e2
+    anomaly_center1 = torch.tensor([-20, -30])
+    anomaly_center2 = torch.tensor([25, -40])
+    anomaly_value1 = (1e1 - background_conductivity )
+    anomaly_value2 = (1e3 - background_conductivity)
+
+    anomaly1 = anomaly_value1 * torch_smooth_circle(point, anomaly_center1, 10)
+    anomaly2 = anomaly_value2 * torch_smooth_circle(point, anomaly_center2, 10)
+
     # Total conductivity: background + anomalies
     total_conductivity = background_conductivity + anomaly1 + anomaly2
     
@@ -73,6 +73,7 @@ def create_surface_measurement_grid(x_range=(-50, 50), y_surface=0.0, spacing=5.
     measurement_points = torch.stack([x_positions, y_positions], dim=1)
     return measurement_points
 
+
 def run_dcr_survey_simulation():
     """
     Run complete DCR survey simulation with conductive anomalies.
@@ -82,7 +83,7 @@ def run_dcr_survey_simulation():
     # Domain configuration
     domain_size = 200.0  # 200m x 200m survey area
     half_size = domain_size / 2.0
-    
+
     # Create Dirichlet boundary (bottom and sides, excluding top surface)
     dirichlet_points = torch.tensor([
         [-half_size, -half_size],  # Bottom left
@@ -92,6 +93,8 @@ def run_dcr_survey_simulation():
         [-half_size, -half_size]   # Close the boundary
     ])
     
+
+
     # Create Neumann boundary (top surface only)
     neumann_points = torch.tensor([
         [-half_size, half_size],   # Top left
@@ -130,13 +133,13 @@ def run_dcr_survey_simulation():
         dirichletBoundaryFunction=dirichlet_bc,
         neumannBoundary=neumann_boundary,  # Top surface with zero flux (insulating)
         source=dcr_current_source,
-        alpha=resistivity_field,  # Conductivity field
+        alpha=conductivity_field,  # Conductivity field
         sigma=None  # No absorption for DC resistivity
     )
     
     # Run simulation
     print("Running DCR survey simulation...")
-    n_walks = 50  # Reduced for testing
+    n_walks = 100  # Reduced for testing
     max_steps = 500
     
     voltages = solver.solve(
@@ -187,7 +190,7 @@ def plot_dcr_survey_results(measurement_positions, measured_voltages, save_plot=
         for i in range(X.shape[0]):
             for j in range(X.shape[1]):
                 point = torch.tensor([X[i, j], Y[i, j]])
-                conductivity = resistivity_field(point)
+                conductivity = conductivity_field(point)
                 resistivity_map[i, j] = 1.0 / conductivity
         
         # Create contour plot

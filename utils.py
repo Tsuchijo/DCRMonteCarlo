@@ -113,6 +113,17 @@ def gridSampleMinMax(function: callable, domain_bounds: list, grid_resolution: i
     
     return min_value.item(), max_value.item(), min_point, max_point
 
+
+def torch_smooth_circle(x: torch.Tensor, center, radius):
+    """
+    Define a smooth circle function which can be differetiated for building spatially varying field
+    returns 0 outside the circle and 1 inside the circle with smooth differentiable transition using sigmoid 
+    """
+    sdf = ((x - center).norm() - radius) # negativen inside the circle positive outside
+    return (-100 * sdf).sigmoid()
+
+
+
 def test_torchGradient():
     """Test torchGradient function with known analytical derivatives."""
     

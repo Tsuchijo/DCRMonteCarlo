@@ -192,7 +192,6 @@ class ScreenedGreensDistribution2D(SamplingDistribution2D):
             
             if np.random.uniform(0, max_density) < density_val:
                 samples.append(r_candidate)
-        
         self.cache = samples
 
 

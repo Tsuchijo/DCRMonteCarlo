@@ -128,12 +128,12 @@ class WostSolver_2D:
         
         # find the sigma bar term, which should be the estimated difference between the min and max of the modified absorption term on the domain
         min_sigma, max_sigma, _, _ = gridSampleMinMax(sigma_prime, self.domain_bounds, grid_resolution=50)
-        sigma_bar = max_sigma
+        sigma_bar = max_sigma - min_sigma
         
         # Ensure sigma_bar is positive and reasonable
-        if (sigma_bar <= 0) | (sigma_bar > 1e6):
+        if (sigma_bar <= 0) | (sigma_bar > 1e3):
             print("Sigma_bar is too small, falling back on value")
-            sigma_bar = 1.0  # fallback value
+            sigma_bar = 10.0  # fallback value
                 
         return sigma_prime, sigma_bar
     
@@ -179,7 +179,7 @@ class WostSolver_2D:
         results_list = []
         
         for point in tqdm(solvePoints, desc=desc, unit="pt"):
-            point_total = torch.tensor(0.0, requires_grad=True)
+            point_total = torch.tensor(0.0, requires_grad=False)
             
             for i in range(nWalks):
                 current_point = point.clone()
@@ -257,6 +257,7 @@ class WostSolver_2D:
                         current_point = next_point.clone()
                     
                     step_count += 1
+                #print(f"Finished one sim with steps {step_count} at point {current_point}")
                 
                 # Add boundary contribution
                 boundary_contribution = self.boundaryDirichlet(current_point)
