@@ -159,7 +159,7 @@ class WostSolver_2D:
     
 
 
-    def _solveUnified(self, solvePoints, nWalks: int = 1000, maxSteps: int = 1000, eps=1e-4) -> torch.Tensor:
+    def _solveUnified(self, solvePoints, nWalks: int = 1000, maxSteps: int = 1000, eps=1e-4, return_history=False) -> torch.Tensor:
         """
         Unified solver that handles all cases: Dirichlet-only, mixed boundaries, and delta tracking.
         Uses conditional logic to skip unnecessary calculations for simpler cases.
@@ -177,9 +177,12 @@ class WostSolver_2D:
             desc = "Solving WoS Dirichlet (Unified)"
         
         results_list = []
+        history_dict = {} if return_history else None
         
-        for point in tqdm(solvePoints, desc=desc, unit="pt"):
+        for point_idx, point in enumerate(tqdm(solvePoints, desc=desc, unit="pt")):
             point_total = torch.tensor(0.0, requires_grad=False)
+            if return_history:
+                history_dict[point_idx] = []
             
             for i in range(nWalks):
                 current_point = point.clone()
@@ -190,6 +193,15 @@ class WostSolver_2D:
                 onBoundary = False
                 normal = torch.tensor([0, 1])
                 attenuation_coef = torch.tensor(1.0) if self.use_delta_tracking else None
+                
+                # History tracking for this walk
+                if return_history:
+                    walk_history = {
+                        'walk_id': i,
+                        'path': [],
+                        'contributions': [],
+                        'total_contribution': 0.0
+                    }
 
                 while (step_count < maxSteps) & (dDirichlet > eps):
                     # Calculate distances to boundaries
@@ -199,7 +211,16 @@ class WostSolver_2D:
                         dNeumann = self.neumannBoundary.silhouetteDistance(current_point)
                         r = max(rmin, min(dDirichlet, dNeumann))
                     else:
+                        dNeumann = None
                         r = max(rmin, dDirichlet)
+                    
+                    # Cache distances for history tracking
+                    if return_history:
+                        walk_history['path'].append({
+                            'point': current_point.clone().detach(),
+                            'dirichlet_distance': dDirichlet.item() if isinstance(dDirichlet, torch.Tensor) else dDirichlet,
+                            'neumann_distance': dNeumann.item() if dNeumann is not None and isinstance(dNeumann, torch.Tensor) else dNeumann
+                        })
                     
                     # Generate random direction
                     theta = torch.rand(1) * 2 * np.pi
@@ -235,6 +256,15 @@ class WostSolver_2D:
                             source_contribution = self.source(sample_point) * greensFunctionNorm2D(r)
 
                         point_total = point_total + source_contribution
+                        
+                        # Track source contribution in history
+                        if return_history:
+                            walk_history['contributions'].append({
+                                'step': step_count,
+                                'type': 'source',
+                                'point': sample_point.clone().detach(),
+                                'contribution': source_contribution.item() if isinstance(source_contribution, torch.Tensor) else source_contribution
+                            })
 
                     
                     # Move to next point based on delta tracking or standard method
@@ -256,6 +286,8 @@ class WostSolver_2D:
                         # Standard method: move to next point
                         current_point = next_point.clone()
                     
+                    # Note: path tracking moved to distance calculation section to avoid duplicate distance calculations
+                    
                     step_count += 1
                 #print(f"Finished one sim with steps {step_count} at point {current_point}")
                 
@@ -264,13 +296,27 @@ class WostSolver_2D:
                 if self.use_delta_tracking:
                     boundary_contribution = boundary_contribution * attenuation_coef
                 point_total = (point_total + boundary_contribution)
+                
+                # Track boundary contribution and finalize walk history
+                if return_history:
+                    walk_history['contributions'].append({
+                        'step': step_count,
+                        'type': 'boundary',
+                        'point': current_point.clone().detach(),
+                        'contribution': boundary_contribution.item() if isinstance(boundary_contribution, torch.Tensor) else boundary_contribution
+                    })
+                    walk_history['total_contribution'] = point_total.item() if isinstance(point_total, torch.Tensor) else point_total
+                    history_dict[point_idx].append(walk_history)
             
             results_list.append(point_total / nWalks)
         
-        return torch.stack(results_list).unsqueeze(1)
+        if return_history:
+            return torch.stack(results_list).unsqueeze(1), history_dict
+        else:
+            return torch.stack(results_list).unsqueeze(1)
 
     #@torch.no_grad()
-    def solve(self, solvePoints: torch.tensor, nWalks = 1000, maxSteps = 1000, eps=1e-4) -> torch.Tensor:
+    def solve(self, solvePoints: torch.tensor, nWalks = 1000, maxSteps = 1000, eps=1e-4, return_history=False) -> torch.Tensor:
         """
         Solve the forward problem for the given surface topology and boundary size.
 
@@ -280,10 +326,28 @@ class WostSolver_2D:
             (N, 2) where N is the number of points.
             nWalks (int): Number of random walks to perform for each point.
             maxSteps (int): Maximum number of steps for each random walk.
+            eps (float): Convergence tolerance for walk termination.
+            return_history (bool): If True, returns a tuple of (solution, history_dict) where history_dict
+                contains the complete path and contributions for each random walk.
         
         Returns:
-            torch.Tensor: A tensor of shape (N, 2) where N is the number of points in the solve_points tensor.
+            torch.Tensor or tuple: If return_history=False, returns a tensor of shape (N, 1) with solution values.
+            If return_history=True, returns (solution_tensor, history_dict) where history_dict has structure:
+            {
+                point_idx: [
+                    {
+                        'walk_id': int,
+                        'path': [{
+                            'point': torch.Tensor,
+                            'dirichlet_distance': float,
+                            'neumann_distance': float or None
+                        }, ...],  # Points visited during walk with cached distances
+                        'contributions': [{'step': int, 'type': str, 'point': torch.Tensor, 'contribution': float}, ...],
+                        'total_contribution': float
+                    }, ...
+                ]
+            }
         """
 
         # Use unified solver for all cases
-        return self._solveUnified(solvePoints, nWalks=nWalks, maxSteps=maxSteps, eps=1e-4)
+        return self._solveUnified(solvePoints, nWalks=nWalks, maxSteps=maxSteps, eps=eps, return_history=return_history)
